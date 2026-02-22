@@ -38,7 +38,7 @@ int main(){
         if (!file){
             std::cout << "Error opening file." << std::endl;
             return 1;
-            }
+        }
 
         file << "k, F(k), A(k)\n";
         for (size_t i = 0; i <= k; i++){
@@ -56,7 +56,7 @@ std::pair<long long, long long> Fib(int k){
     if (k == 0) {
         return {0, 0};
     }
-    
+
     if (k == 1) {
         return {1, 0};
     }
