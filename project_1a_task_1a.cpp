@@ -20,8 +20,22 @@ auto Fib = [](auto&& self, int k) -> std::pair<long long, long long>{
     return {kthfib,additions};
 };
 
+auto GCD = [](auto&& self, int add, long long m, long long n) -> std::pair<long long, int>{
+    if (m < 0) m = -m;
+    if (n < 0) n = -n;
+
+    if(n == 0 || m == 0){
+        return {m+n, add};
+    }
+
+    int temp = m % n;
+    add++;
+    return self(self, add, n, temp);
+};
+
 template <typename T>
-int Scatter(int k, T&& Func)
+int Scatter(int k, T&& Func, const std::string& filename,
+            const std::string& header = "x,value,ops\n")
 {
     std::ofstream file("Fib_results.csv");
     if (!file){
@@ -29,7 +43,7 @@ int Scatter(int k, T&& Func)
         return 1;
     }
 
-    file << "k, F(k), A(k)\n";
+    file << header;
     for (size_t i = 0; i <= k; i++){
         std::pair<long long, long long> result = Func(Func, i);
         file << i << "," << result.first << "," << result.second << "\n";
@@ -61,16 +75,28 @@ int main(){
         std::cout << "Results written to console: k, Fib(k), A(k)." << std::endl << k << "," << result.first << "," << result.second << "\n";
         return 0;
     } else {
-        std::cout << "Calculating the fibonacci sequence up to k for scatterplot data. Please choose k, 0 <= k <= 92 : ";
-        std::cin >> k;
+        std::cout << "Please state your mode of operation (0: Fib & GCD, 1: 3 Exponentials, 2: Sort Data)";
+        int i;
+        std::cin >> i;
+        switch(i){
+            case 0:
+                std::cout
+                    << "Calculating the fibonacci sequence up to k for scatterplot data. Please choose k, 0 <= k <= 92 : ";
+                std::cin >> k;
 
-        if (k < 0 || k > 92){
-            std::cout << "0 <= k <= 92 only. Terminating program." << std::endl;
-            return 1;
+                if (k < 0 || k > 92) {
+                    std::cout << "0 <= k <= 92 only. Terminating program." << std::endl;
+                    return 1;
+                }
+
+                Scatter(k, Fib, "k, F(k), A(k)\n");
+            case 1:
+                throw std::logic_error("Functionality not yet implemented");
+            case 2:
+                throw std::logic_error("Functionality not yet implemented");
+            default:
+                throw std::logic_error("Functionality not yet implemented");
         }
-
-        Scatter(k, Fib);
-
     }
 }
 
