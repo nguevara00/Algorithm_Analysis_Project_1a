@@ -373,7 +373,7 @@ void fibScatter(){
     Matrix m;
     m.push_back(CompList);
 
-    std::vector<std::string> titles = { "x", "Comparisons" };
+    std::vector<std::string> titles = { "GCD(fib(n) fib(n-1))", "Number of Comparisons" };
 
     std::vector<Matrix> data = { m };
 
@@ -408,14 +408,14 @@ void expScatter() {
         expIII[0].push_back(result3.second);
     }
 
-    std::vector<std::string> titles = {"x", "Multiplications"};
+    std::vector<std::string> titles = {"Exponent n which a is raised to", "Number of Multiplications"};
 
     std::vector<Matrix> data = { expI, expII, expIII };
 
     std::vector<std::string> implementations = {
-            "EXPI",
-            "EXPII",
-            "EXPIII"
+            "Decrease-by-one",
+            "Decrease-by-constant-factor",
+            "Divide-and-Conquer"
     };
 
     std::string filename = "exp_scatter_data";
@@ -481,8 +481,9 @@ void sortScatter() {
         }
     }
 
-    // createCSV expects titles = {"x", metric1, metric2, ...}
-    std::vector<std::string> titles = {"x", "InSort", "SelSort"};
+    std::vector<std::string> titles = {"Size of the input array",
+                                       "Calculations for Insertion Sort",
+                                       "Calculations for Selection Sort"};
 
     // three implementations (blocks)
     std::vector<std::string> implementations = {"best_case", "average_case", "worst_case"};
@@ -514,27 +515,12 @@ int main(){
 
        
     } else { // scatter plot mode
-        std::cout << "Scatter plot mode. Enter 1 for GCD, 2 for EXP, 3 for Sort, 0 for all: " <<std::endl << std::endl;
-        int n = 0;
-        std::cin >> n;
-        switch (n) {
-            case 1:
-                fibScatter();
-                break;
-            case 2:
-                expScatter();
-                break;
-            case 3:
-                sortScatter();
-                break;
-            case 0:
+        std::cout << "Scatter plot mode. Testing Fib, GCD, exponentiation, and sorts." <<std::endl << std::endl;
+
                 fibScatter();
                 expScatter();
                 sortScatter();
-                break;
-            default:
-                break;
-        }
+
         std::cout << "Finished scatter plot mode! Please run the program again to test the other mode. Goodbye." << std::endl << std::endl;
     }
 
