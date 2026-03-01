@@ -55,6 +55,19 @@
       <label>CSV file <input type="file" id="file" accept=".csv" /></label>
       <button id="useExample">Load example</button>
 
+      <!-- NEW: filter by impl (case) -->
+      <label>Case (impl)
+        <select id="implFilter"></select>
+      </label>
+
+      <!-- NEW: compare two metric columns as two series -->
+      <label><input type="checkbox" id="compareTwoMetrics"> Compare two metrics</label>
+
+      <!-- NEW: second Y selector (only shown in compare mode) -->
+      <label id="y2Wrap" style="display:none;">Y metric 2
+        <select id="yCol2"></select>
+      </label>
+
       <label>X column
         <select id="xCol"></select>
       </label>
@@ -95,6 +108,13 @@ worst_case,200,19900,19900`;
 
   const fileInput = document.getElementById('file');
   const useExampleBtn = document.getElementById('useExample');
+
+  // NEW controls
+  const implFilterSel = document.getElementById('implFilter');
+  const compareTwoChk = document.getElementById('compareTwoMetrics');
+  const y2Wrap = document.getElementById('y2Wrap');
+  const yColSel2 = document.getElementById('yCol2');
+
   const xColSel = document.getElementById('xCol');
   const yColSel = document.getElementById('yCol');
   const xScaleSel = document.getElementById('xScale');
@@ -123,8 +143,15 @@ worst_case,200,19900,19900`;
   function makeTickFormatterSciOrPlain(maxAbs) {
     const sci = d3.format(".1e");
     const plain = (maxAbs >= 1e4) ? d3.format(",") : d3.format("~g");
-
     return shouldUseSci(maxAbs) ? sci : plain;
+  }
+
+  function fmtTooltip(v) {
+    if (!Number.isFinite(v)) return '—';
+    const av = Math.abs(v);
+    if (av >= 1e6) return d3.format(".1e")(v);
+    if (av >= 1e4) return d3.format(",")(v);
+    return String(v);
   }
 
   function parseCsv(text) {
@@ -190,10 +217,21 @@ worst_case,200,19900,19900`;
 
     const xGuess = guessXColumn(columns);
     const xCol = (xGuess && numericCols.includes(xGuess)) ? xGuess : numericCols[0];
-    const yCol = numericCols.find(c => c !== xCol) || numericCols[0];
+
+    // choose y candidates excluding x
+    const yCandidates = numericCols.filter(c => c !== xCol);
+    const yCol = yCandidates[0] || numericCols[0];
+    const yCol2 = yCandidates[1] || yCandidates[0] || yCol;
 
     populateSelect(xColSel, numericCols, xCol);
-    populateSelect(yColSel, numericCols.filter(c => c !== xCol), yCol);
+    populateSelect(yColSel, yCandidates, yCol);
+    populateSelect(yColSel2, yCandidates, yCol2);
+
+    // Enable/disable compare-two based on number of metrics available
+    const canCompareTwo = yCandidates.length >= 2;
+    compareTwoChk.disabled = !canCompareTwo;
+    if (!canCompareTwo) compareTwoChk.checked = false;
+    y2Wrap.style.display = compareTwoChk.checked ? 'inline-flex' : 'none';
 
     // Parse numeric values for numeric cols (keep impl as string)
     parsed.forEach(r => {
@@ -201,6 +239,10 @@ worst_case,200,19900,19900`;
     });
 
     rowsRaw = parsed;
+
+    // Populate impl filter dropdown with unique impl values
+    const impls = Array.from(new Set(parsed.map(r => r.impl).filter(v => v != null && v !== ''))).sort();
+    populateSelect(implFilterSel, ['(all)'].concat(impls), '(all)');
 
     setStatus(
       `Loaded ${rowsRaw.length} rows. X=<code>${xCol}</code>, Y=<code>${yCol}</code>. Implementations are grouped by <code>impl</code>.`
@@ -220,13 +262,33 @@ worst_case,200,19900,19900`;
     reader.readAsText(f);
   });
 
+  // NEW controls
+  implFilterSel.addEventListener('change', render);
+
+  compareTwoChk.addEventListener('change', () => {
+    y2Wrap.style.display = compareTwoChk.checked ? 'inline-flex' : 'none';
+    render();
+  });
+
+  yColSel2.addEventListener('change', render);
+
   xColSel.addEventListener('change', () => {
     // When x changes, update y options to exclude x
     const xCol = xColSel.value;
     const numericCols = columns.filter(c => c !== 'impl');
     const candidates = numericCols.filter(c => c !== xCol);
-    const currentY = yColSel.value;
-    populateSelect(yColSel, candidates, candidates.includes(currentY) ? currentY : candidates[0]);
+
+    const currentY1 = yColSel.value;
+    const currentY2 = yColSel2.value;
+
+    populateSelect(yColSel, candidates, candidates.includes(currentY1) ? currentY1 : candidates[0]);
+    populateSelect(yColSel2, candidates, candidates.includes(currentY2) ? currentY2 : (candidates[1] || candidates[0]));
+
+    // Disable compare if only one metric remains
+    compareTwoChk.disabled = candidates.length < 2;
+    if (candidates.length < 2) compareTwoChk.checked = false;
+    y2Wrap.style.display = compareTwoChk.checked ? 'inline-flex' : 'none';
+
     render();
   });
 
@@ -253,26 +315,46 @@ worst_case,200,19900,19900`;
 
     const xKey = xColSel.value;
     const yKey = yColSel.value;
+    const yKey2 = yColSel2.value;
+
+    const implFilter = implFilterSel.value;
+    const useImplFilter = implFilter && implFilter !== '(all)';
+
+    const useTwoMetrics = !!compareTwoChk.checked;
 
     // filter valid
     const rows = rowsRaw.filter(r =>
       r.impl != null && r.impl !== '' &&
+      (!useImplFilter || r.impl === implFilter) &&
       Number.isFinite(r[xKey]) &&
       Number.isFinite(r[yKey]) &&
-      r[xKey] > 0
+      (!useTwoMetrics || Number.isFinite(r[yKey2])) &&
+      (xScaleSel.value === 'log2' ? r[xKey] > 0 : true)
     );
 
     if (!rows.length) {
       container.append('div')
         .style('color', '#b91c1c')
         .style('padding', '6px 2px')
-        .text(`No valid rows after filtering. Check that columns ${xKey} and ${yKey} are numeric.`);
+        .text(`No valid rows after filtering. Check selected columns and filters.`);
       return;
     }
 
-    // group
-    const byImpl = d3.groups(rows, d => d.impl);
-    byImpl.forEach(([impl, arr]) => arr.sort((a,b)=>a[xKey]-b[xKey]));
+    // Build series:
+    // - Normal mode: series grouped by impl, yKey is metric
+    // - Compare mode: series are yKey and yKey2, using same filtered rows (often a single impl/case)
+    let series = []; // {name, points, yMetric}
+    if (!useTwoMetrics) {
+      const byImpl = d3.groups(rows, d => d.impl);
+      byImpl.forEach(([impl, arr]) => arr.sort((a,b)=>a[xKey]-b[xKey]));
+      series = byImpl.map(([impl, arr]) => ({ name: impl, points: arr, yMetric: yKey }));
+    } else {
+      const pts = rows.slice().sort((a,b)=>a[xKey]-b[xKey]);
+      series = [
+        { name: yKey,  points: pts, yMetric: yKey },
+        { name: yKey2, points: pts, yMetric: yKey2 }
+      ];
+    }
 
     const margin = {top: 20, right: 34, bottom: 56, left: 76};
     const width = Math.max(360, container.node().clientWidth) - margin.left - margin.right;
@@ -286,7 +368,10 @@ worst_case,200,19900,19900`;
 
     const xMin = d3.min(rows, d => d[xKey]);
     const xMax = d3.max(rows, d => d[xKey]);
-    const yMax = d3.max(rows, d => d[yKey]);
+
+    const yMax = !useTwoMetrics
+      ? d3.max(rows, d => d[yKey])
+      : d3.max(rows, d => Math.max(d[yKey], d[yKey2]));
 
     const xMode = xScaleSel.value;
 
@@ -295,11 +380,13 @@ worst_case,200,19900,19900`;
       : d3.scaleLinear().domain([xMin, xMax]).range([0, width]);
 
     const y = d3.scaleLinear().domain([0, yMax]).nice().range([height, 0]);
+
     const xMaxAbs = Math.max(Math.abs(xMin || 0), Math.abs(xMax || 0));
     const yMaxAbs = Math.abs(yMax || 0);
 
     const xFmt = makeTickFormatterSciOrPlain(xMaxAbs);
     const yFmt = makeTickFormatterSciOrPlain(yMaxAbs);
+
     const xAxis = (xMode === 'log2')
       ? d3.axisBottom(x).ticks(10).tickFormat(xFmt)
       : d3.axisBottom(x).ticks(10).tickFormat(xFmt);
@@ -315,8 +402,18 @@ worst_case,200,19900,19900`;
     g.append('g').attr('class','axis').attr('transform', `translate(0,${height})`).call(xAxis);
     g.append('g').attr('class','axis').call(yAxis);
 
-    g.append('text').attr('x', width/2).attr('y', height+42).attr('text-anchor','middle').text(xKey + (xMode === 'log2' ? ' (log₂)' : ''));
-    g.append('text').attr('transform','rotate(-90)').attr('x', -height/2).attr('y', -56).attr('text-anchor','middle').text(yKey);
+    g.append('text')
+      .attr('x', width/2)
+      .attr('y', height+42)
+      .attr('text-anchor','middle')
+      .text(xKey + (xMode === 'log2' ? ' (log₂)' : ''));
+
+    g.append('text')
+      .attr('transform','rotate(-90)')
+      .attr('x', -height/2)
+      .attr('y', -56)
+      .attr('text-anchor','middle')
+      .text(useTwoMetrics ? `${yKey} / ${yKey2}` : yKey);
 
     // Colors (stable-ish)
     const fixedColors = {
@@ -327,22 +424,28 @@ worst_case,200,19900,19900`;
     const palette = ['#1f77b4','#d62728','#2ca02c','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
     let pi = 0;
     const color = new Map();
-    byImpl.forEach(([impl]) => color.set(impl, fixedColors[impl] || palette[(pi++) % palette.length]));
+    series.forEach(s => color.set(s.name, fixedColors[s.name] || palette[(pi++) % palette.length]));
 
     const doLines = !!showLinesChk.checked;
     const doDots  = !!showDotsChk.checked;
 
     const line = d3.line()
-      .x(d => x(d[xKey]))
-      .y(d => y(d[yKey]))
+      .x(d => x(d.x))
+      .y(d => y(d.y))
       .curve(d3.curveMonotoneX);
 
-    byImpl.forEach(([impl, arr]) => {
-      const col = color.get(impl);
+    series.forEach(s => {
+      const col = color.get(s.name);
+
+      const mapped = s.points.map(d => ({
+        impl: s.name,
+        x: d[xKey],
+        y: d[s.yMetric]
+      }));
 
       if (doLines) {
         g.append('path')
-          .datum(arr)
+          .datum(mapped)
           .attr('fill','none')
           .attr('stroke', col)
           .attr('stroke-width', 2.5)
@@ -350,19 +453,19 @@ worst_case,200,19900,19900`;
       }
 
       if (doDots) {
-        g.selectAll(`.pt-${cssSafe(impl)}`)
-          .data(arr)
+        g.selectAll(`.pt-${cssSafe(s.name)}`)
+          .data(mapped)
           .enter().append('circle')
-          .attr('class', `pt-${cssSafe(impl)}`)
+          .attr('class', `pt-${cssSafe(s.name)}`)
           .attr('r', 4)
-          .attr('cx', d => x(d[xKey]))
-          .attr('cy', d => y(d[yKey]))
+          .attr('cx', d => x(d.x))
+          .attr('cy', d => y(d.y))
           .attr('fill', col)
           .on('mouseenter', function(evt, d) {
             tooltip.html(
               `<div class="hdr">${d.impl}</div>
-               <div class="sub">${xKey} = ${d[xKey]}</div>
-               <div>${yKey} = ${Number.isFinite(d[yKey]) ? d[yKey].toLocaleString() : '—'}</div>`
+               <div class="sub">${xKey} = ${fmtTooltip(d.x)}</div>
+               <div>${d.impl} = ${fmtTooltip(d.y)}</div>`
             )
             .style('opacity', 1)
             .style('border-left', `4px solid ${col}`);
@@ -381,10 +484,10 @@ worst_case,200,19900,19900`;
 
     // Legend
     const legend = d3.select('#legend');
-    byImpl.forEach(([impl]) => {
+    series.forEach(s => {
       const item = legend.append('div').attr('class','badge');
-      item.append('span').attr('class','dot').style('background', color.get(impl));
-      item.append('span').text(impl);
+      item.append('span').attr('class','dot').style('background', color.get(s.name));
+      item.append('span').text(s.name);
     });
   }
 
