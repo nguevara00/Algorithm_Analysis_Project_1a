@@ -41,8 +41,9 @@
 #include <vector>
 #include <numeric> // Required for std::iota
 #include <cstddef> // Required for std::size_t
-#include "pbPlots.hpp"
-#include "supportLib.hpp"
+#include <iterator>
+#include <sstream>
+
 //computes Fib(k) with naive recursive algorithm
 //input k is an integer between 0 and 91
 //outputs the kth number in the fibonacci sequence
@@ -255,36 +256,99 @@ void sortUser(){
     std::cout << std::endl;
 }
 
-void createScatter(std::vector<double> x, std::vector<double> y, std::string fileName){
-    RGBABitmapImageReference *imageReference = CreateRGBABitmapImageReference();
-    StringReference *errorMessage = CreateStringReference((std::vector<wchar_t> *) L"");
+std::vector<long long> fileToVector(const std::string& filename){
+    std::ifstream inputFile(filename + ".txt");
 
-// Series
-    ScatterPlotSeries *series = GetDefaultScatterPlotSeriesSettings();
-    series->xs = &x;
-    series->ys = &y;
+    if (!inputFile)
+        throw std::runtime_error("Failed to open file: " + filename);
 
-// KEY PARTS:
-    series->linearInterpolation = false;                 // don't connect points
-    series->pointType = toVector(L"circles");     // show markers
+    std::vector<long long> integers;
+    int value;
 
-// Plot settings
-    ScatterPlotSettings *settings = GetDefaultScatterPlotSettings();
-    settings->width = 600;
-    settings->height = 400;
-    settings->autoBoundaries = true;
-    settings->autoPadding = true;
-    settings->scatterPlotSeries->push_back(series);
-
-    bool ok = DrawScatterPlotFromSettings(imageReference, settings, errorMessage);
-    if (!ok) {
-        std::wcerr << L"Plot error: " << errorMessage->string->data() << L"\n";
-        return;
+    while (inputFile >> value) {
+        integers.push_back(value);
     }
 
-    std::vector<double> *pngData = ConvertToPNG(imageReference->image);
-    WriteToFile(pngData, fileName + ".png");
+    return integers;
 }
+
+using Matrix = std::vector<std::vector<long long>>; // matrix[col][row]
+std::string implRowsToCSV(
+        const Matrix& m,
+        const std::string& implName,
+        const std::vector<long long>& x
+) {
+    const size_t rows = x.size();
+    const size_t cols = m.size();
+
+    if (rows == 0) {
+        std::cerr << "implRowsToCSV: x is empty.\n";
+        std::exit(-100);
+    }
+    if (cols == 0) {
+        std::cerr << "implRowsToCSV: matrix has no columns.\n";
+        std::exit(-100);
+    }
+
+    for (size_t c = 0; c < cols; ++c) {
+        if (m[c].size() != rows) {
+            std::cerr << "implRowsToCSV: column " << c
+                      << " size (" << m[c].size()
+                      << ") != x size (" << rows << ").\n";
+            std::exit(-100);
+        }
+    }
+
+    std::ostringstream out;
+    for (size_t i = 0; i < rows; ++i) {
+        out << implName << "," << x[i];
+        for (size_t c = 0; c < cols; ++c) {
+            out << "," << m[c][i];
+        }
+        out << "\n";
+    }
+    return out.str();
+}
+
+void createCSV(
+        const std::vector<std::string>& titles,
+        const std::vector<Matrix>& data,
+        const std::vector<std::string>& implementations,
+        const std::vector<long long>& x,
+        const std::string& filename
+) {
+    if (data.size() != implementations.size()) {
+        std::cerr << "createCSV: data.size() must match implementations.size().\n";
+        std::exit(-1000);
+    }
+    if (titles.empty()) {
+        std::cerr << "createCSV: titles is empty.\n";
+        std::exit(-1000);
+    }
+    if (x.empty()) {
+        std::cerr << "createCSV: x is empty.\n";
+        std::exit(-1000);
+    }
+
+    std::ofstream out(filename + ".csv");
+    if (!out) {
+        std::cerr << "createCSV: failed to open output file.\n";
+        std::exit(-1000);
+    }
+
+    // Header: impl,x,metric1,metric2,...
+    out << "impl,";
+    for (size_t i = 0; i + 1 < titles.size(); ++i) out << titles[i] << ",";
+    out << titles.back() << "\n";
+
+    // Body
+    for (size_t k = 0; k < data.size(); ++k) {
+        out << implRowsToCSV(data[k], implementations[k], x);
+    }
+}
+
+
+
 
 //Task 1: Fib(k) for different values of k generated using the recursive algorithm may be stored for this purpose. OR, for sake of speed, you may use an iterative algorithm to compute the Fibonacci sequence once.
 //Use consecutive elements as input to the GCD(m, n) function for computing and plotting D(n). (Think about what should be the upper bound of k and clearly indicate it in your report)?
@@ -301,45 +365,142 @@ void fibScatter(){
     for(int i = 0; i<=k; i++){
         FibList.push_back(FibIt(i)); // produce a vector of Fibonacci numbers
     }
-    std::vector<double> CompList;
+    std::vector<long long int> CompList;
     CompList.reserve(k);
     for(int j = 1; j < FibList.size(); j++){
         std::pair<long long,long long> result = GCD(FibList[j], FibList[j-1]);
         //std::cout << "GCD(" << FibList.at(j) << ", " << FibList.at(j-1) << ")" << ": " << result.first << ", " << result.second << std::endl;
-        CompList.push_back((double)result.second);
+        CompList.push_back(result.second);
     }
-    std::vector<double> x(k);
+    std::vector<long long int> x(k);
     std::iota(std::begin(x), std::end(x), 0);
 
-    createScatter(x, CompList, "CompScatter");
+    Matrix m;
+    m.push_back(CompList);
+
+    std::vector<std::string> titles = { "x", "Comparisons" };
+
+    std::vector<Matrix> data = { m };
+
+    std::vector<std::string> implementations = { "fib_gcd" };
+
+    std::string filename = "fib_scatter_data";
+
+    createCSV(titles, data, implementations, x, filename);
+    std::cout << "Wrote " << filename << ".csv\n";
 }
 
 //Task 2: You may choose any value of the constant a. Compute and plot M(n) for the three different algorithms in the same plot (it will help you to compare them!).
-void expScatter(){
+void expScatter() {
     int n = 0;
-    std::cout << std::endl << "Enter n: ";
+    std::cout << "\nEnter n: ";
     std::cin >> n;
-    std::vector<double> Exp1V, Exp2V, Exp3V;
-    for(int i = 1; i<=n; i++){
+
+
+    // x column: 1..n
+    std::vector<long long> x(static_cast<size_t>(n));
+    std::iota(x.begin(), x.end(), 1);
+
+    // Each implementation gets its own Matrix with ONE metric column
+    Matrix expI(1), expII(1), expIII(1);
+    expI[0].reserve(n);
+    expII[0].reserve(n);
+    expIII[0].reserve(n);
+
+    for (int i = 1; i <= n; ++i) {
         auto result1 = EXPI(2, i);
         auto result2 = EXPII(2, i);
         auto result3 = EXPIII(2, i);
-        Exp1V.push_back((double)result1.second);
-        Exp2V.push_back((double)result2.second);
-        Exp3V.push_back((double)result3.second);
+
+        expI[0].push_back(result1.second);
+        expII[0].push_back(result2.second);
+        expIII[0].push_back(result3.second);
     }
-    std::vector<double> x(n);
-    std::iota(std::begin(x), std::end(x), 0);
-    // std::cout << x.size() << " " << Exp1V.size() << " " << Exp2V.size() << " " << Exp3V.size();
-    createScatter(x, Exp1V, "EXP1M");
-    createScatter(x, Exp2V, "EXP2M");
-    createScatter(x, Exp3V, "EXP3M");
+
+    std::vector<std::string> titles = {"x", "Multiplications"};
+
+    std::vector<Matrix> data = { expI, expII, expIII };
+
+    std::vector<std::string> implementations = {
+            "EXPI",
+            "EXPII",
+            "EXPIII"
+    };
+
+    std::string filename = "exp_scatter_data";
+
+    createCSV(titles, data, implementations, x, filename);
+
+    std::cout << "Wrote " << filename << ".csv\n";
 }
+
 
 //Task 3: For different sizes of the list n (range 10 - 10000), read data from the folder "testSet" in the test data Download test data that is sorted (data{n}_sorted.txt), random (data{n}.txt), and reverse sorted (data{n}_rSorted.txt).
 //Use that data to compute C(n) for each of the two sorting algorithms. Produce three scatter plots that compare the complexity of the two algorithms in i) Best-case, ii) Average-case, and iii) Worst-case.
-void sortScatter(){
+void sortScatter() {
+    std::vector<long long> x;
+    x.reserve(100);
+    for (int n = 100; n <= 10000; n += 100){
+        x.push_back(n);
+    }
 
+    const size_t rows = x.size();
+
+       Matrix best(2), avg(2), worst(2);
+    for (auto& col : best)  col.reserve(rows);
+    for (auto& col : avg)   col.reserve(rows);
+    for (auto& col : worst) col.reserve(rows);
+
+    for (int n = 100; n <= 10000; n += 100) {
+        std::string fileNum = std::to_string(n);
+
+        // If your files are in "testSet", include that prefix as shown:
+        auto sorted  = fileToVector("testSet/data" + fileNum + "_sorted");
+        auto random  = fileToVector("testSet/data" + fileNum);
+        auto rsorted = fileToVector("testSet/data" + fileNum + "_rSorted");
+
+        // Best case
+        {
+            auto a1 = sorted;
+            auto a2 = sorted;
+            long long c1 = InSort(a1);
+            long long c2 = SelSort(a2);
+            best[0].push_back(c1);
+            best[1].push_back(c2);
+        }
+
+        // Average case
+        {
+            auto a1 = random;
+            auto a2 = random;
+            long long c1 = InSort(a1);
+            long long c2 = SelSort(a2);
+            avg[0].push_back(c1);
+            avg[1].push_back(c2);
+        }
+
+        // Worst case
+        {
+            auto a1 = rsorted;
+            auto a2 = rsorted;
+            long long c1 = InSort(a1);
+            long long c2 = SelSort(a2);
+            worst[0].push_back(c1);
+            worst[1].push_back(c2);
+        }
+    }
+
+    // createCSV expects titles = {"x", metric1, metric2, ...}
+    std::vector<std::string> titles = {"x", "InSort", "SelSort"};
+
+    // three implementations (blocks)
+    std::vector<std::string> implementations = {"best_case", "average_case", "worst_case"};
+    std::vector<Matrix> data = {best, avg, worst};
+
+    std::string filename = "sort_task3";
+    createCSV(titles, data, implementations, x, filename);
+
+    std::cout << "Wrote " << filename << ".csv\n";
 }
 
 
