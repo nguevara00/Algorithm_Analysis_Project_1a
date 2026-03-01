@@ -85,7 +85,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script>
-  // Example CSV matches your createCSV output style: impl,x,metric...
   const exampleCsv = `impl,x,InSort_C,SelSort_C
 best_case,100,0,4950
 best_case,200,0,19900
@@ -116,6 +115,17 @@ worst_case,200,19900,19900`;
   }
 
   function stripBOM(s) { return s.replace(/^\ufeff/, ''); }
+
+  function shouldUseSci(maxAbs) {
+    return maxAbs >= 1e6;
+  }
+
+  function makeTickFormatterSciOrPlain(maxAbs) {
+    const sci = d3.format(".1e");
+    const plain = (maxAbs >= 1e4) ? d3.format(",") : d3.format("~g");
+
+    return shouldUseSci(maxAbs) ? sci : plain;
+  }
 
   function parseCsv(text) {
     const parsed = d3.csvParse(text.trim());
@@ -285,12 +295,16 @@ worst_case,200,19900,19900`;
       : d3.scaleLinear().domain([xMin, xMax]).range([0, width]);
 
     const y = d3.scaleLinear().domain([0, yMax]).nice().range([height, 0]);
+    const xMaxAbs = Math.max(Math.abs(xMin || 0), Math.abs(xMax || 0));
+    const yMaxAbs = Math.abs(yMax || 0);
 
+    const xFmt = makeTickFormatterSciOrPlain(xMaxAbs);
+    const yFmt = makeTickFormatterSciOrPlain(yMaxAbs);
     const xAxis = (xMode === 'log2')
-      ? d3.axisBottom(x).ticks(10, "~s")
-      : d3.axisBottom(x).ticks(10);
+      ? d3.axisBottom(x).ticks(10).tickFormat(xFmt)
+      : d3.axisBottom(x).ticks(10).tickFormat(xFmt);
 
-    const yAxis = d3.axisLeft(y).ticks(8);
+    const yAxis = d3.axisLeft(y).ticks(8).tickFormat(yFmt);
 
     const xGrid = d3.axisBottom(x).ticks(10).tickSize(-height).tickFormat('');
     const yGrid = d3.axisLeft(y).ticks(8).tickSize(-width).tickFormat('');

@@ -39,9 +39,7 @@
 #include <utility>
 #include <fstream>
 #include <vector>
-#include <numeric> // Required for std::iota
-#include <cstddef> // Required for std::size_t
-#include <iterator>
+#include <numeric>
 #include <sstream>
 
 //computes Fib(k) with naive recursive algorithm
@@ -256,20 +254,36 @@ void sortUser(){
     std::cout << std::endl;
 }
 
-std::vector<long long> fileToVector(const std::string& filename){
-    std::ifstream inputFile(filename + ".txt");
+// an iterative fib algorithm to use for scatterplot mode
+std::vector<long long> buildAdditionsTable(int limit) {
+    std::vector<long long> A(limit +1, 0);
+    if (limit >=2){
+        for (int k = 2; k <= limit; ++k){
+            A[k] = A[k-1] + A[k-2] +1;
+        }
+    }
+    return A;
+}
 
-    if (!inputFile)
-        throw std::runtime_error("Failed to open file: " + filename);
-
-    std::vector<long long> integers;
-    int value;
-
-    while (inputFile >> value) {
-        integers.push_back(value);
+bool loadVectorFromFile(const std::string& filename, std::vector<long long>& out, int expectedN){
+    std::ifstream file(filename);
+    if (!file) {
+        return false;
     }
 
-    return integers;
+    out.clear();
+    out.reserve(static_cast<size_t>(expectedN));
+    
+    long long x = 0;
+    while (file >> x) {
+        out.push_back(x);
+    }
+
+    if (static_cast<int>(out.size()) != expectedN){
+        std::cerr << "Error: " << filename << " expected " << expectedN << " values, read " << out.size() << "\n";
+        return false;
+    }
+    return true;
 }
 
 using Matrix = std::vector<std::vector<long long>>; // matrix[col][row]
@@ -353,36 +367,65 @@ void createCSV(
 //Task 1: Fib(k) for different values of k generated using the recursive algorithm may be stored for this purpose. OR, for sake of speed, you may use an iterative algorithm to compute the Fibonacci sequence once.
 //Use consecutive elements as input to the GCD(m, n) function for computing and plotting D(n). (Think about what should be the upper bound of k and clearly indicate it in your report)?
 void fibScatter(){
-    int k = 92;
-
-    std::vector<long long> FibList;
-    FibList.reserve(k);
-    for(int i = 0; i<=k; i++){
-        FibList.push_back(FibIt(i)); // produce a vector of Fibonacci numbers
+    const int FIB_LIMIT = 91;
+  
+    std::vector<long long> fibVals(FIB_LIMIT + 2, 0);
+    fibVals[0] = 0;
+    fibVals[1] = 1;
+    for (int k = 2; k <= FIB_LIMIT + 1; ++k){
+        fibVals[k] = fibVals[k - 1] + fibVals[k - 2];
     }
-    std::vector<long long int> CompList;
-    CompList.reserve(k);
-    for(int j = 1; j < FibList.size(); j++){
-        std::pair<long long,long long> result = GCD(FibList[j], FibList[j-1]);
-        //std::cout << "GCD(" << FibList.at(j) << ", " << FibList.at(j-1) << ")" << ": " << result.first << ", " << result.second << std::endl;
-        CompList.push_back(result.second);
+
+    std::vector<long long> additionCounts = buildAdditionsTable(FIB_LIMIT);
+
+    {
+        // x = k
+        std::vector<long long> x;
+        x.reserve(FIB_LIMIT + 1);
+        for (int k = 0; k <= FIB_LIMIT; ++k) x.push_back(k);
+
+        // Matrix with 2 metric columns: fib, additions
+        Matrix m(2);
+        m[0].reserve(x.size());
+        m[1].reserve(x.size());
+
+        for (int k = 0; k <= FIB_LIMIT; ++k) {
+            m[0].push_back(fibVals[k]);
+            m[1].push_back(additionCounts[k]);
+        }
+
+        std::vector<std::string> titles = {"k", "fib(k)", "A(k)"};
+        std::vector<Matrix> data = {m};
+        std::vector<std::string> implementations = {"fib"};
+
+        createCSV(titles, data, implementations, x, "fib_scatter_data");
+        std::cout << "Wrote fib_scatter_data.csv\n";
     }
-    std::vector<long long int> x(k);
-    std::iota(std::begin(x), std::end(x), 0);
 
-    Matrix m;
-    m.push_back(CompList);
+    {
+        // x = n = Fib(k), for k = 1..FIB_LIMIT
+        std::vector<long long> x;
+        x.reserve(FIB_LIMIT);
 
-    std::vector<std::string> titles = { "GCD(fib(n) fib(n-1))", "Number of Comparisons" };
+        Matrix m(1);               // 1 metric column: D(n)
+        m[0].reserve(FIB_LIMIT);
 
-    std::vector<Matrix> data = { m };
+        for (int k = 1; k <= FIB_LIMIT; ++k) {
+            long long n = fibVals[k];
+            long long mval = fibVals[k + 1];
+            auto gcdResult = GCD(mval, n);
 
-    std::vector<std::string> implementations = { "fib_gcd" };
+            x.push_back(n);
+            m[0].push_back(gcdResult.second);
+        }
 
-    std::string filename = "fib_scatter_data";
+        std::vector<std::string> titles = {"n", "D(n)"};
+        std::vector<Matrix> data = {m};
+        std::vector<std::string> implementations = {"gcd_worstcase"};
 
-    createCSV(titles, data, implementations, x, filename);
-    std::cout << "Wrote " << filename << ".csv\n";
+        createCSV(titles, data, implementations, x, "gcd_scatter_data");
+        std::cout << "Wrote gcd_scatter_data.csv\n";
+    }
 }
 
 //Task 2: You may choose any value of the constant a. Compute and plot M(n) for the three different algorithms in the same plot (it will help you to compare them!).
@@ -408,7 +451,7 @@ void expScatter() {
         expIII[0].push_back(result3.second);
     }
 
-    std::vector<std::string> titles = {"Exponent n which a is raised to", "Number of Multiplications"};
+    std::vector<std::string> titles = {"n", "M(n)"};
 
     std::vector<Matrix> data = { expI, expII, expIII };
 
@@ -437,62 +480,67 @@ void sortScatter() {
 
     const size_t rows = x.size();
 
-       Matrix best(2), avg(2), worst(2);
+    Matrix best(2), avg(2), worst(2);
     for (auto& col : best)  col.reserve(rows);
     for (auto& col : avg)   col.reserve(rows);
     for (auto& col : worst) col.reserve(rows);
 
+    std::vector<long long> data; // reused buffer
+
     for (int n = 100; n <= 10000; n += 100) {
         std::string fileNum = std::to_string(n);
 
-        // If your files are in "testSet", include that prefix as shown:
-        auto sorted  = fileToVector("testSet/data" + fileNum + "_sorted");
-        auto random  = fileToVector("testSet/data" + fileNum);
-        auto rsorted = fileToVector("testSet/data" + fileNum + "_rSorted");
-
+       
         // Best case
         {
-            auto a1 = sorted;
-            auto a2 = sorted;
-            long long c1 = InSort(a1);
-            long long c2 = SelSort(a2);
-            best[0].push_back(c1);
-            best[1].push_back(c2);
+            const std::string file = "testSet/data" + fileNum + "_sorted.txt";
+            if (!loadVectorFromFile(file, data, n)) {
+                std::cerr << "Could not read " << file << "\n";
+                std::exit(-1);
+            }
+            auto a1 = data;
+            auto a2 = data;
+            best[0].push_back(InSort(a1));
+            best[1].push_back(SelSort(a2));
         }
 
         // Average case
         {
-            auto a1 = random;
-            auto a2 = random;
-            long long c1 = InSort(a1);
-            long long c2 = SelSort(a2);
-            avg[0].push_back(c1);
-            avg[1].push_back(c2);
+            const std::string file = "testSet/data" + fileNum + ".txt";
+            if (!loadVectorFromFile(file, data, n)) {
+                std::cerr << "Could not read " << file << "\n";
+                std::exit(-1);
+            }
+            auto a1 = data;
+            auto a2 = data;
+            avg[0].push_back(InSort(a1));
+            avg[1].push_back(SelSort(a2));
         }
 
         // Worst case
         {
-            auto a1 = rsorted;
-            auto a2 = rsorted;
-            long long c1 = InSort(a1);
-            long long c2 = SelSort(a2);
-            worst[0].push_back(c1);
-            worst[1].push_back(c2);
+            const std::string file = "testSet/data" + fileNum + "_rSorted.txt";
+            if (!loadVectorFromFile(file, data, n)) {
+                std::cerr << "Could not read " << file << "\n";
+                std::exit(-1);
+            }
+            auto a1 = data;
+            auto a2 = data;
+            worst[0].push_back(InSort(a1));
+            worst[1].push_back(SelSort(a2));
         }
     }
 
-    std::vector<std::string> titles = {"Size of the input array",
-                                       "Calculations for Insertion Sort",
-                                       "Calculations for Selection Sort"};
+    std::vector<std::string> titles = {"n",
+                                       "C(n) - Insertion Sort",
+                                       "C(n) - Selection Sort"};
 
-    // three implementations (blocks)
     std::vector<std::string> implementations = {"best_case", "average_case", "worst_case"};
-    std::vector<Matrix> data = {best, avg, worst};
+    std::vector<Matrix> dataBlocks = {best, avg, worst};
 
-    std::string filename = "sort_scatter_data";
-    createCSV(titles, data, implementations, x, filename);
+    createCSV(titles, dataBlocks, implementations, x, "sort_scatter_data");
 
-    std::cout << "Wrote " << filename << ".csv\n";
+    std::cout << "Wrote sort_scatter_data.csv\n";
 }
 
 
