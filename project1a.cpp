@@ -1,4 +1,4 @@
-// Nick Guevara and Will Dappen
+// Nick Guevara and William Dappen
 // CS415 Gill
 // Project 1a
 // 2-28-26
@@ -39,7 +39,8 @@
 #include <utility>
 #include <fstream>
 #include <vector>
-
+#include "pbPlots.hpp"
+#include "supportLib.hpp"
 //computes Fib(k) with naive recursive algorithm
 //input k is an integer between 0 and 91
 //outputs the kth number in the fibonacci sequence
@@ -238,6 +239,37 @@ void sortUser(){
         std::cout << selectionSortData[i] << (i+1 == selectionSortData.size() ? '\n' : ' ');
     }
     std::cout << std::endl;
+}
+
+void createScatter(std::vector<double> x, std::vector<double> y, std::string fileName){
+    RGBABitmapImageReference *imageReference = CreateRGBABitmapImageReference();
+    StringReference *errorMessage = CreateStringReference((std::vector<wchar_t> *) L"");
+
+// Series
+    ScatterPlotSeries *series = GetDefaultScatterPlotSeriesSettings();
+    series->xs = &x;
+    series->ys = &y;
+
+// KEY PARTS:
+    series->linearInterpolation = false;                 // don't connect points
+    series->pointType = toVector(L"circles");     // show markers
+
+// Plot settings
+    ScatterPlotSettings *settings = GetDefaultScatterPlotSettings();
+    settings->width = 600;
+    settings->height = 400;
+    settings->autoBoundaries = true;
+    settings->autoPadding = true;
+    settings->scatterPlotSeries->push_back(series);
+
+    bool ok = DrawScatterPlotFromSettings(imageReference, settings, errorMessage);
+    if (!ok) {
+        std::wcerr << L"Plot error: " << errorMessage->string->data() << L"\n";
+        return;
+    }
+
+    std::vector<double> *pngData = ConvertToPNG(imageReference->image);
+    WriteToFile(pngData, "Fib_scatter_plot.png");
 }
 
 void fibScatter(){}
