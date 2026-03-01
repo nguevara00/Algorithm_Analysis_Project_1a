@@ -39,10 +39,39 @@
 #include <utility>
 #include <fstream>
 #include <vector>
-#include <numeric> // Required for std::iota
-#include <cstddef> // Required for std::size_t
-#include "pbPlots.hpp"
-#include "supportLib.hpp"
+
+bool loadVectorFromFile(const std::string& filename, std::vector<long long>& out, int expectedN){
+    std::ifstream file(filename);
+    if (!file) {
+        return false;
+    }
+
+    out.clear();
+    out.reserve(static_cast<size_t>(expectedN));
+    
+    long long x = 0;
+    while (file >> x) {
+        out.push_back(x);
+    }
+
+    if (static_cast<int>(out.size()) != expectedN){
+        std::cerr << "Error: " << filename << " expected " << expectedN << " values, read " << out.size() << "\n";
+        return false;
+    }
+    return true;
+}
+
+// an iterative fib algorithm to use for scatterplot mode
+std::vector<long long> buildAdditionsTable(int limit) {
+    std::vector<long long> A(limit +1, 0);
+    if (limit >=2){
+        for (int k = 2; k <= limit; ++k){
+            A[k] = A[k-1] + A[k-2] +1;
+        }
+    }
+    return A;
+}
+
 //computes Fib(k) with naive recursive algorithm
 //input k is an integer between 0 and 91
 //outputs the kth number in the fibonacci sequence
@@ -255,91 +284,137 @@ void sortUser(){
     std::cout << std::endl;
 }
 
-void createScatter(std::vector<double> x, std::vector<double> y, std::string fileName){
-    RGBABitmapImageReference *imageReference = CreateRGBABitmapImageReference();
-    StringReference *errorMessage = CreateStringReference((std::vector<wchar_t> *) L"");
-
-// Series
-    ScatterPlotSeries *series = GetDefaultScatterPlotSeriesSettings();
-    series->xs = &x;
-    series->ys = &y;
-
-// KEY PARTS:
-    series->linearInterpolation = false;                 // don't connect points
-    series->pointType = toVector(L"circles");     // show markers
-
-// Plot settings
-    ScatterPlotSettings *settings = GetDefaultScatterPlotSettings();
-    settings->width = 600;
-    settings->height = 400;
-    settings->autoBoundaries = true;
-    settings->autoPadding = true;
-    settings->scatterPlotSeries->push_back(series);
-
-    bool ok = DrawScatterPlotFromSettings(imageReference, settings, errorMessage);
-    if (!ok) {
-        std::wcerr << L"Plot error: " << errorMessage->string->data() << L"\n";
-        return;
-    }
-
-    std::vector<double> *pngData = ConvertToPNG(imageReference->image);
-    WriteToFile(pngData, fileName + ".png");
-}
-
 //Task 1: Fib(k) for different values of k generated using the recursive algorithm may be stored for this purpose. OR, for sake of speed, you may use an iterative algorithm to compute the Fibonacci sequence once.
 //Use consecutive elements as input to the GCD(m, n) function for computing and plotting D(n). (Think about what should be the upper bound of k and clearly indicate it in your report)?
 void fibScatter(){
-    int k = 0;
-    std::cout << "Enter k from 1-92: ";
-    std::cin >> k;
-    if(k<0 || k>92){
-        std::cerr << "Error: Input Out of Bounds";
-        exit(-1);
+    const int FIB_LIMIT = 91;
+  
+    std::vector<long long> fibVals(FIB_LIMIT + 2, 0);
+    fibVals[0] = 0;
+    fibVals[1] = 1;
+    for (int k = 2; k <= FIB_LIMIT + 1; ++k){
+        fibVals[k] = fibVals[k - 1] + fibVals[k - 2];
     }
-    std::vector<long long> FibList;
-    FibList.reserve(k);
-    for(int i = 0; i<=k; i++){
-        FibList.push_back(FibIt(i)); // produce a vector of Fibonacci numbers
-    }
-    std::vector<double> CompList;
-    CompList.reserve(k);
-    for(int j = 1; j < FibList.size(); j++){
-        std::pair<long long,long long> result = GCD(FibList[j], FibList[j-1]);
-        //std::cout << "GCD(" << FibList.at(j) << ", " << FibList.at(j-1) << ")" << ": " << result.first << ", " << result.second << std::endl;
-        CompList.push_back((double)result.second);
-    }
-    std::vector<double> x(k);
-    std::iota(std::begin(x), std::end(x), 0);
+    std::vector<long long> additionCounts = buildAdditionsTable(FIB_LIMIT);
 
-    createScatter(x, CompList, "CompScatter");
+    std::ofstream fibOut("fib_scatter.csv");
+    if (!fibOut){
+        std::cerr << "Error: could not open fib_scatter.csv";
+        return;
+    }
+    fibOut << "k,fib,additions\n";
+
+
+    for (int k = 0; k <= FIB_LIMIT; ++k){
+            fibOut << k << "," << fibVals[k] << "," << additionCounts[k] << "\n";
+    }
+    std::cout << "fib_scatter.csv has been created in the project directory.\n";
+    fibOut.close();
+
+
+    //next task gcd plot
+    std::ofstream gcdOut("gcd_scatter.csv");
+    if (!gcdOut){
+        std::cerr << "Error: could not open gcd_scatter.csv";
+        return;
+    }
+    gcdOut << "n,D(n)\n";
+    for (int k = 1; k <= FIB_LIMIT; ++k){
+        long long n = fibVals[k];
+        long long m = fibVals[k + 1];
+        auto gcdResult = GCD(m,n);
+        gcdOut << n << "," << gcdResult.second << "\n";
+    }
+    std::cout << "gcd_scatter.csv has been created in the project directory.\n";
+    gcdOut.close();
 }
 
-//Task 2: You may choose any value of the constant a. Compute and plot M(n) for the three different algorithms in the same plot (it will help you to compare them!).
 void expScatter(){
-    int n = 0;
-    std::cout << std::endl << "Enter n: ";
-    std::cin >> n;
-    std::vector<double> Exp1V, Exp2V, Exp3V;
-    for(int i = 1; i<=n; i++){
-        auto result1 = EXPI(2, i);
-        auto result2 = EXPII(2, i);
-        auto result3 = EXPIII(2, i);
-        Exp1V.push_back((double)result1.second);
-        Exp2V.push_back((double)result2.second);
-        Exp3V.push_back((double)result3.second);
+    const int N_LIMIT = 2000;
+    const long long BASE = 2;
+
+    std::ofstream expOut("exp_scatter.csv");
+    if (!expOut){
+        std::cerr << "Error: could not open exp_scatter.csv\n";
+        return;
     }
-    std::vector<double> x(n);
-    std::iota(std::begin(x), std::end(x), 0);
-    // std::cout << x.size() << " " << Exp1V.size() << " " << Exp2V.size() << " " << Exp3V.size();
-    createScatter(x, Exp1V, "EXP1M");
-    createScatter(x, Exp2V, "EXP2M");
-    createScatter(x, Exp3V, "EXP3M");
+    expOut << "n,dec_by_one,dec_by_factor,divide_and_conquer\n";
+    for (int n = 1; n <= N_LIMIT; ++n){
+        auto result1 = EXPI(BASE, n);
+        auto result2 = EXPII(BASE, n);
+        auto result3 = EXPIII(BASE, n);
+
+        expOut << n << "," << result1.second << "," << result2.second << "," << result3.second << "\n";
+    }
+    std::cout << "exp_scatter.csv has been created in the project directory.\n";
+    expOut.close();
 }
 
-//Task 3: For different sizes of the list n (range 10 - 10000), read data from the folder "testSet" in the test data Download test data that is sorted (data{n}_sorted.txt), random (data{n}.txt), and reverse sorted (data{n}_rSorted.txt).
-//Use that data to compute C(n) for each of the two sorting algorithms. Produce three scatter plots that compare the complexity of the two algorithms in i) Best-case, ii) Average-case, and iii) Worst-case.
 void sortScatter(){
+    const int N_MIN = 100;
+    const int N_MAX = 10000;
+    const int STEP = 100;
+    const std::string DIR = "testSet/";
 
+    std::ofstream bestOut("sort_best_scatter.csv");
+    std::ofstream avgOut("sort_avg_scatter.csv");
+    std::ofstream worstOut("sort_worst_scatter.csv");
+
+    if (!bestOut || !avgOut || !worstOut){
+        std::cerr << "Error: could not open csv files for writing.\n";
+        return;
+    }
+
+    bestOut << "n,insertion_sort,selection_sort\n";
+    avgOut << "n,insertion_sort,selection_sort\n";
+    worstOut << "n,insertion_sort,selection_sort\n";
+
+    std::vector<long long> data;
+
+    for (int n = N_MIN; n <= N_MAX; n += STEP){
+        {
+            const std::string file = DIR + "data" +std::to_string(n) + "_sorted.txt";
+            if (loadVectorFromFile(file, data, n)){
+                std::vector<long long> a = data;
+                std::vector<long long> b = data;
+                long long ins = InSort(a);
+                long long sel = SelSort(b);
+                bestOut << n << "," << ins << "," << sel << "\n";
+            } else{
+                std::cerr << "Could not open " << file << "\n";
+            }
+        }
+
+        {
+            const std::string file = DIR + "data" +std::to_string(n) + ".txt";
+            if (loadVectorFromFile(file, data, n)){
+                std::vector<long long> a = data;
+                std::vector<long long> b = data;
+                long long ins = InSort(a);
+                long long sel = SelSort(b);
+                avgOut << n << "," << ins << "," << sel << "\n";
+            } else{
+                std::cerr << "Could not open " << file << "\n";
+            }
+        }
+
+        {
+            const std::string file = DIR + "data" +std::to_string(n) + "_rSorted.txt";
+            if (loadVectorFromFile(file, data, n)){
+                std::vector<long long> a = data;
+                std::vector<long long> b = data;
+                long long ins = InSort(a);
+                long long sel = SelSort(b);
+                worstOut << n << "," << ins << "," << sel << "\n";
+            } else{
+                std::cerr << "Could not open " << file << "\n";
+            }
+        }
+    }
+    std::cout << "sort_best_scatter.csv, sort_avg_scatter.csv, and sort_worst_scatter.csv have been created in the project directory.\n";
+    bestOut.close();
+    avgOut.close();
+    worstOut.close();
 }
 
 
@@ -362,28 +437,11 @@ int main(){
 
        
     } else { // scatter plot mode
-        std::cout << "Scatter plot mode. Enter 1 for GCD, 2 for EXP, 3 for Sort, 0 for all: " <<std::endl << std::endl;
-        int n = 0;
-        std::cin >> n;
-        switch (n) {
-            case 1:
-                fibScatter();
-                break;
-            case 2:
-                expScatter();
-                break;
-            case 3:
-                sortScatter();
-                break;
-            case 0:
-                fibScatter();
-                expScatter();
-                sortScatter();
-                break;
-            default:
-                break;
-        }
-        std::cout << "Finished scatter plot mode! Please run the program again to test the other mode. Goodbye." << std::endl << std::endl;
+        std::cout << "Scatterplot mode. Please allow some time for the computation." << std::endl;
+        fibScatter();
+        expScatter();
+        sortScatter();
+        std::cout << "Scatter plots have finished generating! The files are in the computer :)" << std::endl;
     }
 
     return 0;
