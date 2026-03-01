@@ -39,6 +39,8 @@
 #include <utility>
 #include <fstream>
 #include <vector>
+#include <numeric> // Required for std::iota
+#include <cstddef> // Required for std::size_t
 #include "pbPlots.hpp"
 #include "supportLib.hpp"
 //computes Fib(k) with naive recursive algorithm
@@ -60,6 +62,18 @@ std::pair<long long, long long> Fib(int k){
     return {kthfib,additions};
 }
 
+long long FibIt(int n){
+    if (n == 0) return 0;
+    if (n == 1) return 1;
+    long long a=0, b=1, c;
+
+    for (int i = 2; i <= n; ++i) {
+        c = a + b;
+        a = b;
+        b = c;
+    }
+    return b;
+}
 
 //Euclid's Algorithm to compute GCD.
 //for worst case analysis it needs to take in fibonacci numbers from the fib function
@@ -269,12 +283,64 @@ void createScatter(std::vector<double> x, std::vector<double> y, std::string fil
     }
 
     std::vector<double> *pngData = ConvertToPNG(imageReference->image);
-    WriteToFile(pngData, "Fib_scatter_plot.png");
+    WriteToFile(pngData, fileName + ".png");
 }
 
-void fibScatter(){}
-void expScatter(){}
-void sortScatter(){}
+//Task 1: Fib(k) for different values of k generated using the recursive algorithm may be stored for this purpose. OR, for sake of speed, you may use an iterative algorithm to compute the Fibonacci sequence once.
+//Use consecutive elements as input to the GCD(m, n) function for computing and plotting D(n). (Think about what should be the upper bound of k and clearly indicate it in your report)?
+void fibScatter(){
+    int k = 0;
+    std::cout << "Enter k from 1-92: ";
+    std::cin >> k;
+    if(k<0 || k>92){
+        std::cerr << "Error: Input Out of Bounds";
+        exit(-1);
+    }
+    std::vector<long long> FibList;
+    FibList.reserve(k);
+    for(int i = 0; i<=k; i++){
+        FibList.push_back(FibIt(i)); // produce a vector of Fibonacci numbers
+    }
+    std::vector<double> CompList;
+    CompList.reserve(k);
+    for(int j = 1; j < FibList.size(); j++){
+        std::pair<long long,long long> result = GCD(FibList[j], FibList[j-1]);
+        //std::cout << "GCD(" << FibList.at(j) << ", " << FibList.at(j-1) << ")" << ": " << result.first << ", " << result.second << std::endl;
+        CompList.push_back((double)result.second);
+    }
+    std::vector<double> x(k);
+    std::iota(std::begin(x), std::end(x), 0);
+
+    createScatter(x, CompList, "CompScatter");
+}
+
+//Task 2: You may choose any value of the constant a. Compute and plot M(n) for the three different algorithms in the same plot (it will help you to compare them!).
+void expScatter(){
+    int n = 0;
+    std::cout << std::endl << "Enter n: ";
+    std::cin >> n;
+    std::vector<double> Exp1V, Exp2V, Exp3V;
+    for(int i = 1; i<=n; i++){
+        auto result1 = EXPI(2, i);
+        auto result2 = EXPII(2, i);
+        auto result3 = EXPIII(2, i);
+        Exp1V.push_back((double)result1.second);
+        Exp2V.push_back((double)result2.second);
+        Exp3V.push_back((double)result3.second);
+    }
+    std::vector<double> x(n);
+    std::iota(std::begin(x), std::end(x), 0);
+    // std::cout << x.size() << " " << Exp1V.size() << " " << Exp2V.size() << " " << Exp3V.size();
+    createScatter(x, Exp1V, "EXP1M");
+    createScatter(x, Exp2V, "EXP2M");
+    createScatter(x, Exp3V, "EXP3M");
+}
+
+//Task 3: For different sizes of the list n (range 10 - 10000), read data from the folder "testSet" in the test data Download test data that is sorted (data{n}_sorted.txt), random (data{n}.txt), and reverse sorted (data{n}_rSorted.txt).
+//Use that data to compute C(n) for each of the two sorting algorithms. Produce three scatter plots that compare the complexity of the two algorithms in i) Best-case, ii) Average-case, and iii) Worst-case.
+void sortScatter(){
+
+}
 
 
 int main(){
@@ -296,10 +362,27 @@ int main(){
 
        
     } else { // scatter plot mode
-        std::cout << "Scatter plot mode. Testing Fib, GCD, exponetiation, and sorts." <<std::endl << std::endl;
-        //fibScatter();
-        //expScatter();
-        //sortScatter();
+        std::cout << "Scatter plot mode. Enter 1 for GCD, 2 for EXP, 3 for Sort, 0 for all: " <<std::endl << std::endl;
+        int n = 0;
+        std::cin >> n;
+        switch (n) {
+            case 1:
+                fibScatter();
+                break;
+            case 2:
+                expScatter();
+                break;
+            case 3:
+                sortScatter();
+                break;
+            case 0:
+                fibScatter();
+                expScatter();
+                sortScatter();
+                break;
+            default:
+                break;
+        }
         std::cout << "Finished scatter plot mode! Please run the program again to test the other mode. Goodbye." << std::endl << std::endl;
     }
 
