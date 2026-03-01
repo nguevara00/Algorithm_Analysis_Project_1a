@@ -353,13 +353,8 @@ void createCSV(
 //Task 1: Fib(k) for different values of k generated using the recursive algorithm may be stored for this purpose. OR, for sake of speed, you may use an iterative algorithm to compute the Fibonacci sequence once.
 //Use consecutive elements as input to the GCD(m, n) function for computing and plotting D(n). (Think about what should be the upper bound of k and clearly indicate it in your report)?
 void fibScatter(){
-    int k = 0;
-    std::cout << "Enter k from 1-92: ";
-    std::cin >> k;
-    if(k<0 || k>92){
-        std::cerr << "Error: Input Out of Bounds";
-        exit(-1);
-    }
+    int k = 92;
+
     std::vector<long long> FibList;
     FibList.reserve(k);
     for(int i = 0; i<=k; i++){
@@ -392,11 +387,7 @@ void fibScatter(){
 
 //Task 2: You may choose any value of the constant a. Compute and plot M(n) for the three different algorithms in the same plot (it will help you to compare them!).
 void expScatter() {
-    int n = 0;
-    std::cout << "\nEnter n: ";
-    std::cin >> n;
-
-
+    int n=2000;
     // x column: 1..n
     std::vector<long long> x(static_cast<size_t>(n));
     std::iota(x.begin(), x.end(), 1);
@@ -497,7 +488,7 @@ void sortScatter() {
     std::vector<std::string> implementations = {"best_case", "average_case", "worst_case"};
     std::vector<Matrix> data = {best, avg, worst};
 
-    std::string filename = "sort_task3";
+    std::string filename = "sort_scatter_data";
     createCSV(titles, data, implementations, x, filename);
 
     std::cout << "Wrote " << filename << ".csv\n";

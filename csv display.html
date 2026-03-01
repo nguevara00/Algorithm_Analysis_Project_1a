@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CSV Plotter — Multiple Implementations</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --card:#ffffff; --bg:#f8fafc; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+    font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", sans-serif; }
+  .container { max-width: 1120px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 1.25rem; margin: 0 0 12px 0; }
+  .card { background: var(--card); border:1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row { display:flex; gap:12px; flex-wrap: wrap; align-items: center; }
+  label { display:flex; align-items:center; gap:8px; }
+  input[type="file"] { padding:6px 8px; }
+  select, button { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+  button { background:#f9fafb; cursor:pointer; }
+  button:hover { background:#f3f4f6; }
+  #chart { height: 540px; position: relative; }
+  .legend { display:flex; gap:12px; flex-wrap: wrap; margin-top: 8px; }
+  .badge { display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--border);
+    border-radius: 999px; background:#fff; font-size: 12px; }
+  .dot { width:10px; height:10px; border-radius:999px; display:inline-block; }
+  .footer { color: var(--muted); font-size: .92rem; margin-top: 12px; line-height: 1.35; }
+  .axis text { font-size: 12px; fill: #374151; }
+  .axis path, .axis line { stroke: #94a3b8; }
+  .grid line { stroke: #e5e7eb; }
+  .grid .domain { display: none; }
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--fg);
+    z-index: 20;
+    white-space: nowrap;
+  }
+  .tooltip .hdr { font-weight: 600; margin-bottom: 2px; }
+  .tooltip .sub { color: var(--muted); }
+  .err { color:#b91c1c; font-weight:600; }
+  code { background:#f1f5f9; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>CSV Plotter (impl + x + metrics)</h1>
+
+  <div class="card">
+    <div class="row">
+      <label>CSV file <input type="file" id="file" accept=".csv" /></label>
+      <button id="useExample">Load example</button>
+
+      <label>X column
+        <select id="xCol"></select>
+      </label>
+
+      <label>Y metric
+        <select id="yCol"></select>
+      </label>
+
+      <label>X scale
+        <select id="xScale">
+          <option value="linear" selected>linear</option>
+          <option value="log2">log₂</option>
+        </select>
+      </label>
+
+      <label><input type="checkbox" id="showLines" checked> Lines</label>
+      <label><input type="checkbox" id="showDots" checked> Dots</label>
+    </div>
+
+    <div class="footer" id="status">
+      Expected minimum columns: <code>impl</code> and one numeric x column (often <code>N</code> or <code>x</code>), plus at least one numeric metric column.
+    </div>
+  </div>
+
+  <div id="chart" class="card"></div>
+  <div id="legend" class="legend"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+  // Example CSV matches your createCSV output style: impl,x,metric...
+  const exampleCsv = `impl,x,InSort_C,SelSort_C
+best_case,100,0,4950
+best_case,200,0,19900
+average_case,100,2600,4950
+average_case,200,10400,19900
+worst_case,100,4950,4950
+worst_case,200,19900,19900`;
+
+  const fileInput = document.getElementById('file');
+  const useExampleBtn = document.getElementById('useExample');
+  const xColSel = document.getElementById('xCol');
+  const yColSel = document.getElementById('yCol');
+  const xScaleSel = document.getElementById('xScale');
+  const showLinesChk = document.getElementById('showLines');
+  const showDotsChk = document.getElementById('showDots');
+  const statusEl = document.getElementById('status');
+
+  // Tooltip
+  const tooltip = d3.select('body').append('div')
+    .attr('class', 'tooltip')
+    .style('opacity', 0);
+
+  let rowsRaw = [];
+  let columns = [];
+
+  function setStatus(msg, isErr=false) {
+    statusEl.innerHTML = isErr ? `<span class="err">${msg}</span>` : msg;
+  }
+
+  function stripBOM(s) { return s.replace(/^\ufeff/, ''); }
+
+  function parseCsv(text) {
+    const parsed = d3.csvParse(text.trim());
+    parsed.columns = parsed.columns.map(stripBOM);
+
+    // Fix BOM-polluted key in row objects
+    parsed.forEach(r => {
+      const bomImpl = Object.keys(r).find(k => stripBOM(k) === 'impl' && k !== 'impl');
+      if (bomImpl && !r.impl) { r.impl = r[bomImpl]; delete r[bomImpl]; }
+    });
+
+    return parsed;
+  }
+
+  function guessXColumn(cols) {
+    const preferred = ['N', 'x', 'n', 'size'];
+    for (const p of preferred) if (cols.includes(p)) return p;
+    // fallback: first non-impl column
+    return cols.find(c => c !== 'impl') || null;
+  }
+
+  function numericColumnCandidates(parsed, colName) {
+    // A column is "numeric" if at least one row parses to finite
+    let ok = false;
+    for (const r of parsed) {
+      const v = +r[colName];
+      if (Number.isFinite(v)) { ok = true; break; }
+    }
+    return ok;
+  }
+
+  function populateSelect(selectEl, opts, selected) {
+    selectEl.innerHTML = '';
+    opts.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o;
+      opt.textContent = o;
+      if (o === selected) opt.selected = true;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function loadDataFromCsv(csvText) {
+    const parsed = parseCsv(csvText);
+    columns = parsed.columns.slice();
+
+    if (!columns.includes('impl')) {
+      setStatus("CSV must include a column named 'impl'.", true);
+      rowsRaw = [];
+      render();
+      return;
+    }
+
+    // Find numeric columns (besides impl)
+    const numericCols = columns.filter(c => c !== 'impl' && numericColumnCandidates(parsed, c));
+    if (numericCols.length < 2) {
+      setStatus("Need at least two numeric columns besides 'impl' (one for x and one metric).", true);
+      rowsRaw = [];
+      render();
+      return;
+    }
+
+    const xGuess = guessXColumn(columns);
+    const xCol = (xGuess && numericCols.includes(xGuess)) ? xGuess : numericCols[0];
+    const yCol = numericCols.find(c => c !== xCol) || numericCols[0];
+
+    populateSelect(xColSel, numericCols, xCol);
+    populateSelect(yColSel, numericCols.filter(c => c !== xCol), yCol);
+
+    // Parse numeric values for numeric cols (keep impl as string)
+    parsed.forEach(r => {
+      numericCols.forEach(c => r[c] = +r[c]);
+    });
+
+    rowsRaw = parsed;
+
+    setStatus(
+      `Loaded ${rowsRaw.length} rows. X=<code>${xCol}</code>, Y=<code>${yCol}</code>. Implementations are grouped by <code>impl</code>.`
+    );
+
+    render();
+  }
+
+  // Controls
+  useExampleBtn.addEventListener('click', () => loadDataFromCsv(exampleCsv));
+
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => loadDataFromCsv(String(reader.result).replace(/\r\n/g, '\n'));
+    reader.readAsText(f);
+  });
+
+  xColSel.addEventListener('change', () => {
+    // When x changes, update y options to exclude x
+    const xCol = xColSel.value;
+    const numericCols = columns.filter(c => c !== 'impl');
+    const candidates = numericCols.filter(c => c !== xCol);
+    const currentY = yColSel.value;
+    populateSelect(yColSel, candidates, candidates.includes(currentY) ? currentY : candidates[0]);
+    render();
+  });
+
+  yColSel.addEventListener('change', render);
+  xScaleSel.addEventListener('change', render);
+  showLinesChk.addEventListener('change', render);
+  showDotsChk.addEventListener('change', render);
+
+  function cssSafe(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+
+  function render() {
+    const container = d3.select('#chart');
+    container.selectAll('*').remove();
+    d3.select('#legend').html('');
+    tooltip.style('opacity', 0);
+
+    if (!rowsRaw.length) {
+      container.append('div')
+        .style('color', '#6b7280')
+        .style('padding', '6px 2px')
+        .text('Load a CSV (or click “Load example”).');
+      return;
+    }
+
+    const xKey = xColSel.value;
+    const yKey = yColSel.value;
+
+    // filter valid
+    const rows = rowsRaw.filter(r =>
+      r.impl != null && r.impl !== '' &&
+      Number.isFinite(r[xKey]) &&
+      Number.isFinite(r[yKey]) &&
+      r[xKey] > 0
+    );
+
+    if (!rows.length) {
+      container.append('div')
+        .style('color', '#b91c1c')
+        .style('padding', '6px 2px')
+        .text(`No valid rows after filtering. Check that columns ${xKey} and ${yKey} are numeric.`);
+      return;
+    }
+
+    // group
+    const byImpl = d3.groups(rows, d => d.impl);
+    byImpl.forEach(([impl, arr]) => arr.sort((a,b)=>a[xKey]-b[xKey]));
+
+    const margin = {top: 20, right: 34, bottom: 56, left: 76};
+    const width = Math.max(360, container.node().clientWidth) - margin.left - margin.right;
+    const height = 540 - margin.top - margin.bottom;
+
+    const svg = container.append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom);
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const xMin = d3.min(rows, d => d[xKey]);
+    const xMax = d3.max(rows, d => d[xKey]);
+    const yMax = d3.max(rows, d => d[yKey]);
+
+    const xMode = xScaleSel.value;
+
+    const x = (xMode === 'log2')
+      ? d3.scaleLog().base(2).domain([Math.max(1e-9, xMin), xMax]).range([0, width])
+      : d3.scaleLinear().domain([xMin, xMax]).range([0, width]);
+
+    const y = d3.scaleLinear().domain([0, yMax]).nice().range([height, 0]);
+
+    const xAxis = (xMode === 'log2')
+      ? d3.axisBottom(x).ticks(10, "~s")
+      : d3.axisBottom(x).ticks(10);
+
+    const yAxis = d3.axisLeft(y).ticks(8);
+
+    const xGrid = d3.axisBottom(x).ticks(10).tickSize(-height).tickFormat('');
+    const yGrid = d3.axisLeft(y).ticks(8).tickSize(-width).tickFormat('');
+
+    g.append('g').attr('class','grid').attr('transform', `translate(0,${height})`).call(xGrid);
+    g.append('g').attr('class','grid').call(yGrid);
+
+    g.append('g').attr('class','axis').attr('transform', `translate(0,${height})`).call(xAxis);
+    g.append('g').attr('class','axis').call(yAxis);
+
+    g.append('text').attr('x', width/2).attr('y', height+42).attr('text-anchor','middle').text(xKey + (xMode === 'log2' ? ' (log₂)' : ''));
+    g.append('text').attr('transform','rotate(-90)').attr('x', -height/2).attr('y', -56).attr('text-anchor','middle').text(yKey);
+
+    // Colors (stable-ish)
+    const fixedColors = {
+      best_case: '#2ca02c',
+      average_case: '#1f77b4',
+      worst_case: '#d62728'
+    };
+    const palette = ['#1f77b4','#d62728','#2ca02c','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+    let pi = 0;
+    const color = new Map();
+    byImpl.forEach(([impl]) => color.set(impl, fixedColors[impl] || palette[(pi++) % palette.length]));
+
+    const doLines = !!showLinesChk.checked;
+    const doDots  = !!showDotsChk.checked;
+
+    const line = d3.line()
+      .x(d => x(d[xKey]))
+      .y(d => y(d[yKey]))
+      .curve(d3.curveMonotoneX);
+
+    byImpl.forEach(([impl, arr]) => {
+      const col = color.get(impl);
+
+      if (doLines) {
+        g.append('path')
+          .datum(arr)
+          .attr('fill','none')
+          .attr('stroke', col)
+          .attr('stroke-width', 2.5)
+          .attr('d', line);
+      }
+
+      if (doDots) {
+        g.selectAll(`.pt-${cssSafe(impl)}`)
+          .data(arr)
+          .enter().append('circle')
+          .attr('class', `pt-${cssSafe(impl)}`)
+          .attr('r', 4)
+          .attr('cx', d => x(d[xKey]))
+          .attr('cy', d => y(d[yKey]))
+          .attr('fill', col)
+          .on('mouseenter', function(evt, d) {
+            tooltip.html(
+              `<div class="hdr">${d.impl}</div>
+               <div class="sub">${xKey} = ${d[xKey]}</div>
+               <div>${yKey} = ${Number.isFinite(d[yKey]) ? d[yKey].toLocaleString() : '—'}</div>`
+            )
+            .style('opacity', 1)
+            .style('border-left', `4px solid ${col}`);
+            d3.select(this).attr('r', 6);
+          })
+          .on('mousemove', function(evt) {
+            const pad = 12;
+            tooltip.style('left', `${evt.clientX + pad}px`).style('top', `${evt.clientY + pad}px`);
+          })
+          .on('mouseleave', function() {
+            tooltip.style('opacity', 0);
+            d3.select(this).attr('r', 4);
+          });
+      }
+    });
+
+    // Legend
+    const legend = d3.select('#legend');
+    byImpl.forEach(([impl]) => {
+      const item = legend.append('div').attr('class','badge');
+      item.append('span').attr('class','dot').style('background', color.get(impl));
+      item.append('span').text(impl);
+    });
+  }
+
+  // Load example on first paint
+  loadDataFromCsv(exampleCsv);
+</script>
+</body>
+</html>
