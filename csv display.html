@@ -55,15 +55,15 @@
       <label>CSV file <input type="file" id="file" accept=".csv" /></label>
       <button id="useExample">Load example</button>
 
-      <!-- NEW: filter by impl (case) -->
+      <!-- filter by impl (case) -->
       <label>Case (impl)
         <select id="implFilter"></select>
       </label>
 
-      <!-- NEW: compare two metric columns as two series -->
+      <!-- compare two metric columns as two series -->
       <label><input type="checkbox" id="compareTwoMetrics"> Compare two metrics</label>
 
-      <!-- NEW: second Y selector (only shown in compare mode) -->
+      <!-- second Y selector (only shown in compare mode) -->
       <label id="y2Wrap" style="display:none;">Y metric 2
         <select id="yCol2"></select>
       </label>
@@ -78,6 +78,14 @@
 
       <label>X scale
         <select id="xScale">
+          <option value="linear" selected>linear</option>
+          <option value="log2">log₂</option>
+        </select>
+      </label>
+
+      <!-- NEW: Y scale -->
+      <label>Y scale
+        <select id="yScale">
           <option value="linear" selected>linear</option>
           <option value="log2">log₂</option>
         </select>
@@ -109,7 +117,7 @@ worst_case,200,19900,19900`;
   const fileInput = document.getElementById('file');
   const useExampleBtn = document.getElementById('useExample');
 
-  // NEW controls
+  // controls
   const implFilterSel = document.getElementById('implFilter');
   const compareTwoChk = document.getElementById('compareTwoMetrics');
   const y2Wrap = document.getElementById('y2Wrap');
@@ -118,6 +126,8 @@ worst_case,200,19900,19900`;
   const xColSel = document.getElementById('xCol');
   const yColSel = document.getElementById('yCol');
   const xScaleSel = document.getElementById('xScale');
+  const yScaleSel = document.getElementById('yScale');
+
   const showLinesChk = document.getElementById('showLines');
   const showDotsChk = document.getElementById('showDots');
   const statusEl = document.getElementById('status');
@@ -262,7 +272,6 @@ worst_case,200,19900,19900`;
     reader.readAsText(f);
   });
 
-  // NEW controls
   implFilterSel.addEventListener('change', render);
 
   compareTwoChk.addEventListener('change', () => {
@@ -294,6 +303,10 @@ worst_case,200,19900,19900`;
 
   yColSel.addEventListener('change', render);
   xScaleSel.addEventListener('change', render);
+
+  // NEW: y scale change
+  yScaleSel.addEventListener('change', render);
+
   showLinesChk.addEventListener('change', render);
   showDotsChk.addEventListener('change', render);
 
@@ -322,6 +335,9 @@ worst_case,200,19900,19900`;
 
     const useTwoMetrics = !!compareTwoChk.checked;
 
+    const xMode = xScaleSel.value;
+    const yMode = yScaleSel.value;
+
     // filter valid
     const rows = rowsRaw.filter(r =>
       r.impl != null && r.impl !== '' &&
@@ -329,7 +345,8 @@ worst_case,200,19900,19900`;
       Number.isFinite(r[xKey]) &&
       Number.isFinite(r[yKey]) &&
       (!useTwoMetrics || Number.isFinite(r[yKey2])) &&
-      (xScaleSel.value === 'log2' ? r[xKey] > 0 : true)
+      (xMode === 'log2' ? r[xKey] > 0 : true) &&
+      (yMode === 'log2' ? (r[yKey] > 0 && (!useTwoMetrics || r[yKey2] > 0)) : true)
     );
 
     if (!rows.length) {
@@ -342,7 +359,7 @@ worst_case,200,19900,19900`;
 
     // Build series:
     // - Normal mode: series grouped by impl, yKey is metric
-    // - Compare mode: series are yKey and yKey2, using same filtered rows (often a single impl/case)
+    // - Compare mode: series are yKey and yKey2, using same filtered rows
     let series = []; // {name, points, yMetric}
     if (!useTwoMetrics) {
       const byImpl = d3.groups(rows, d => d.impl);
@@ -373,13 +390,18 @@ worst_case,200,19900,19900`;
       ? d3.max(rows, d => d[yKey])
       : d3.max(rows, d => Math.max(d[yKey], d[yKey2]));
 
-    const xMode = xScaleSel.value;
+    const yMinPos = d3.min(rows, d => {
+      if (!useTwoMetrics) return d[yKey];
+      return Math.min(d[yKey], d[yKey2]);
+    });
 
     const x = (xMode === 'log2')
       ? d3.scaleLog().base(2).domain([Math.max(1e-9, xMin), xMax]).range([0, width])
       : d3.scaleLinear().domain([xMin, xMax]).range([0, width]);
 
-    const y = d3.scaleLinear().domain([0, yMax]).nice().range([height, 0]);
+    const y = (yMode === 'log2')
+      ? d3.scaleLog().base(2).domain([Math.max(1e-9, yMinPos), yMax]).range([height, 0])
+      : d3.scaleLinear().domain([0, yMax]).nice().range([height, 0]);
 
     const xMaxAbs = Math.max(Math.abs(xMin || 0), Math.abs(xMax || 0));
     const yMaxAbs = Math.abs(yMax || 0);
@@ -391,7 +413,9 @@ worst_case,200,19900,19900`;
       ? d3.axisBottom(x).ticks(10).tickFormat(xFmt)
       : d3.axisBottom(x).ticks(10).tickFormat(xFmt);
 
-    const yAxis = d3.axisLeft(y).ticks(8).tickFormat(yFmt);
+    const yAxis = (yMode === 'log2')
+      ? d3.axisLeft(y).ticks(10, "~g")
+      : d3.axisLeft(y).ticks(10).tickFormat(yFmt);
 
     const xGrid = d3.axisBottom(x).ticks(10).tickSize(-height).tickFormat('');
     const yGrid = d3.axisLeft(y).ticks(8).tickSize(-width).tickFormat('');
@@ -413,7 +437,7 @@ worst_case,200,19900,19900`;
       .attr('x', -height/2)
       .attr('y', -56)
       .attr('text-anchor','middle')
-      .text(useTwoMetrics ? `${yKey} / ${yKey2}` : yKey);
+      .text((useTwoMetrics ? `${yKey} / ${yKey2}` : yKey) + (yMode === 'log10' ? ' (log₁₀)' : ''));
 
     // Colors (stable-ish)
     const fixedColors = {
@@ -462,10 +486,12 @@ worst_case,200,19900,19900`;
           .attr('cy', d => y(d.y))
           .attr('fill', col)
           .on('mouseenter', function(evt, d) {
+            const yLabel = useTwoMetrics ? d.impl : yKey;
+
             tooltip.html(
               `<div class="hdr">${d.impl}</div>
                <div class="sub">${xKey} = ${fmtTooltip(d.x)}</div>
-               <div>${d.impl} = ${fmtTooltip(d.y)}</div>`
+               <div>${yLabel} = ${fmtTooltip(d.y)}</div>`
             )
             .style('opacity', 1)
             .style('border-left', `4px solid ${col}`);
