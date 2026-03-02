@@ -192,12 +192,15 @@ void fibUser(){
 
 void expUser(){
     int a = 0;
-    int n = 0;
+    int n = -1;
     std::cout << "Calculating a^n using three methods." << std::endl << "Please enter base a: ";
     std::cin >> a;
-    std::cout << "The result of a^n may overflow. For a=2, choose n less than 63. For higher bases, please choose n to be a small number. M(a,n) will be correct for any numbers. Please enter exp n: ";
-    std::cin >> n;
-    std::cout << std::endl;
+    while(n<0 || n>63) {
+        std::cout
+                << "The result of a^n may overflow. For a=2, choose n less than 63. For higher bases, please choose n to be a small number. M(a,n) will be correct for any numbers. Please enter exp n: ";
+        std::cin >> n;
+        std::cout << std::endl;
+    }
 
     std::pair<long long, long long> expOne = EXPI(a,n);
     std::pair<long long, long long> expTwo = EXPII(a,n);
